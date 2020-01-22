@@ -1,0 +1,34 @@
+name: Build packages
+
+on: push
+
+jobs:
+  build:
+    name: Build modified packages
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 1000
+    - name: Setup build environment
+      run: |
+        export ANDROID_HOME=${HOME}/lib/android-sdk
+        export NDK=${HOME}/lib/android-ndk
+        ./scripts/setup-ubuntu.sh
+        ./scripts/setup-android-sdk.sh >/dev/null
+    - name: Process git changes
+      run: |
+        OLD_COMMIT=$(jq --raw-output .commits[0].id "$GITHUB_EVENT_PATH")
+        TOP_COMMIT=$(jq --raw-output .commits[-1].id "$GITHUB_EVENT_PATH")
+        if [ "$OLD_COMMIT" = "$TOP_COMMIT" ]; then
+          echo "Processing commit: ${TOP_COMMIT}"
+          CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r "${TOP_COMMIT}")
+        else
+          echo "Processing commit range: ${OLD_COMMIT}..${TOP_COMMIT}"
+          CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r "${OLD_COMMIT}" "${TOP_COMMIT}")
+        fi
+        for pkg in $(sed -nE 's@^packages/([^/]*)/([^/]*)@\1@p' <<< "$CHANGED_FILES"); do
+          [ ! -d "./packages/$pkg" ] && echo "=== Skipping deleted package '$pkg'"
+          ./build-package.sh -I $pkg
+        done
